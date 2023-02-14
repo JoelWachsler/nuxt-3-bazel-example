@@ -1,0 +1,78 @@
+load("@npm//nuxt:index.bzl", "nuxt")
+load("@io_bazel_rules_docker//container:container.bzl", "container_image")
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
+load("@io_bazel_rules_docker//container:layer.bzl", "container_layer")
+load("@io_bazel_rules_docker//docker/util:run.bzl", "container_run_and_commit_layer")
+
+filegroup(
+    name = "nuxt_srcs",
+    srcs =
+        glob(
+            [
+                "pages/**/*.vue"
+            ],
+        ) + [
+            "nuxt.config.ts",
+            "package.json",
+            "yarn.lock",
+        ],
+)
+
+nuxt(
+    name = "dev",
+    args = [
+        "dev",
+    ],
+    data = [
+        ":nuxt_srcs",
+        "@npm//:node_modules",
+    ],
+)
+
+nuxt(
+    name = "build",
+    args = [
+        "build",
+    ],
+    data = [
+        ":nuxt_srcs",
+        "@npm//:node_modules",
+    ],
+    output_dir = True,
+)
+
+# copies sources and places them in the /app/ directory
+pkg_tar(
+    name = "srcs_tar",
+    srcs = [":nuxt_srcs"],
+    package_dir = "/app/",
+)
+
+container_layer(
+    name = "srcs_modules_layer_tar",
+    tars = [":srcs_tar"]
+)
+
+container_image(
+    name = "build_image",
+    base = "@node_16//image",
+    entrypoint = [""],
+    workdir = "/app",
+    layers = [":srcs_modules_layer_tar"],
+)
+
+container_run_and_commit_layer(
+    name = "build_container",
+    commands = [
+        "yarn install && yarn build && rm -rf node_modules",
+    ],
+    image = ":build_image.tar",
+)
+
+container_image(
+    name = "image",
+    base = ":build_image",
+    entrypoint = ["node", ".output/server/index.mjs"],
+    workdir = "/app",
+    layers = [":build_container"],
+)
